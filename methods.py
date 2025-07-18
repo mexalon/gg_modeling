@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+import pickle
 
 # генерируем слоистую проницаемость
 def generate_rand_k(eq, alpha=0.001):
@@ -22,6 +23,17 @@ def generate_combinations(params):
     result = [dict(zip(keys, combination)) for combination in combinations]
     
     return result
+
+def dump_eq(fpath, obj):
+    """ сохраняем eq в файл """
+    with open(fpath , 'wb') as file:
+        pickle.dump(obj, file)
+
+def load_eq(fpath):
+    """ Загружает объект из файла """
+    with open(fpath, 'rb') as file:
+        obj = pickle.load(file)
+    return obj
 
 
 '''  
