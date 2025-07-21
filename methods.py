@@ -3,12 +3,12 @@ import itertools
 import pickle
 
 # генерируем слоистую проницаемость
-def generate_rand_k(eq, alpha=0.001):
-    rand_k = np.ones(eq.shape) * eq.k
-    rand_k[:,3:-3,:]  = rand_k[:,3:-3,:] + alpha * np.random.randn(*(rand_k[:,3:-3,:].shape)) * eq.k 
-    lines = np.random.randn(1, rand_k.shape[1], 1)
-    rand_k = rand_k * (1 + alpha*(lines))
-    return rand_k
+# def generate_rand_k(eq, alpha=0.001):
+#     rand_k = np.ones(eq.shape) * eq.k
+#     rand_k[:,3:-3,:]  = rand_k[:,3:-3,:] + alpha * np.random.randn(*(rand_k[:,3:-3,:].shape)) * eq.k 
+#     lines = np.random.randn(1, rand_k.shape[1], 1)
+#     rand_k = rand_k * (1 + alpha*(lines))
+#     return rand_k
 
 def generate_combinations(params):
     # Преобразуем значения словаря в списки, если они не являются списками

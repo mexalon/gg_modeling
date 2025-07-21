@@ -8,6 +8,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
     def __init__(self, **kwargs):
         super().__init__()
         # параметры модели
+        self.seed = None
         self.t_range = 1000 # запихал это сюда, чтобы все было в одном месте, 
         self.timestep = 10  # чтобы было удобно сохранить весь обьект и не морочиьтся со всякими ямлами 
         self.shape = (64, 160, 2) # points
@@ -20,6 +21,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         # параметры среды
         self.k = 0.1 # Darcy проницаемсть
         self.m = 0.4 # поистость
+        self.k_noize = 1e-3 # коэффициент шума для проницаемости, чтобы она не была слишком одинаковой
 
         # параметры флюидов
         self.ro_gas = 1.28 # начальная плотность газа kg/m3
@@ -61,6 +63,10 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         self.__dict__.update(kwargs) # Обновляем параметры моделирования из кваргов
 
         '''задача начальных полей'''
+        # сиид для генерации рандомной проницаемости
+        if self.seed:
+            np.random.seed(self.seed)
+
         # generate grid
         self.grid = CartesianGrid(self.sides, self.shape)  
 
@@ -72,7 +78,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
             (xyz[:,:,:,1] >= total_H - self.H - self.b) ) # координаты области с газогидратом
 
         # поле проницаемости со случайными вариациями 
-        k = np.ones(self.shape) * self.k 
+        k  = self.k * (1 +  np.random.randn(*self.shape) * self.k_noize)
         self.k_field = ScalarField(self.grid, data=k)
 
         # g field  - поле силы тяжести
