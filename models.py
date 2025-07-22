@@ -1,7 +1,8 @@
 import numpy as np
 from pde import  PDEBase, FieldCollection, ScalarField, VectorField, CartesianGrid
 from pde import  solve_poisson_equation
-
+from pde.tools.numba import jit
+from numba import njit
 
 class Unstable_Two_Phase_Gas_Grav(PDEBase):
   
@@ -21,7 +22,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         # параметры среды
         self.k = 0.1 # Darcy проницаемсть
         self.m = 0.4 # поистость
-        self.k_noize = 1e-3 # коэффициент шума для проницаемости, чтобы она не была слишком одинаковой
+        self.s_noise = 1e-3 # коэффициент шума для возмущения всего (насыщеннсоть чтобы не была слишком ровной)
 
         # параметры флюидов
         self.ro_gas = 1.28 # начальная плотность газа kg/m3
@@ -78,7 +79,8 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
             (xyz[:,:,:,1] >= total_H - self.H - self.b) ) # координаты области с газогидратом
 
         # поле проницаемости со случайными вариациями 
-        k  = self.k * (1 +  np.random.randn(*self.shape) * self.k_noize)
+        # k  = self.k * (1 +  np.random.randn(*self.shape) * self.k_noise)
+        k  = self.k * np.ones(self.shape)
         self.k_field = ScalarField(self.grid, data=k)
 
         # g field  - поле силы тяжести
@@ -97,6 +99,9 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         # s_gas initial field - начальное поле насыщенности газом
         s_ini = np.ones(self.shape) * self.s0 # насыщенность во всём объёме
         s_ini[xh, yh, zh] = self.s_gas # насыщенность в области с газом 
+
+        s_ini = s_ini * (1 + np.abs(np.random.randn(*self.shape)*self.s_noise)) # добавим шум
+
         self.s_ini_field = ScalarField(self.grid, data=s_ini) 
 
         # source field - распределённый источник газа. q по сути это dro/dt в области выделения, если выделение газа 1 кг в куб. метре в секунду, то q=1 кг/м3*сек
@@ -197,7 +202,93 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         return FieldCollection([dP_dt, ds_gas_dt])
 
 
+class Numba_Unstable_Two_Phase_Gas_Grav(Unstable_Two_Phase_Gas_Grav):
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _make_pde_rhs_numba(self, state):
+        """ 
+        the numba-acceleratin
+        it freezes all values when compiling the function, 
+        so the diffusivity cannot be altered without recompiling.
+        Have no idea how to use it with time-dependet parameters.
+        Now it works with initial value of source field 
+
+        just uncomment this method to use
+        """
+        # make attributes locally available
+        k = self.k_field.data 
+        m = self.m 
+        ro_gas = self.ro_gas
+        ro_liq = self.ro_liq
+        nu_gas = self.nu_gas 
+        nu_liq = self.nu_liq 
+        D = self.D 
+        Pc = self.Pc
+        s_star = self.s_star 
+        s_eps = self.s_eps 
+        source = self.source_field.data
+        g = self.g_field.data
+
+        # create operators      
+        grid = self.grid
+        dot = VectorField(grid).make_dot_operator()
+        laplace_p = grid.make_operator("laplace", bc=self.p_gas_bc)
+        laplace_s = grid.make_operator("laplace", bc={'derivative': 0})
+        gradient_p = grid.make_operator("gradient", bc=self.p_gas_bc)
+        gradient_k = grid.make_operator("gradient", bc={'derivative': 0})
+
+        @jit
+        def pde_rhs(state_data, t=0):
+            """ compiled helper function evaluating right hand side """
+            P_gas = state_data[0] 
+            s_gas = state_data[1] 
+            s_liq = 1-s_gas # насыщенность жидкости = 1 - s газа
+            ro = P_gas * ro_gas / 0.1 # распреджеление плотности газа исходя из давления
+
+            k_s_gas = np.maximum((s_gas-s_star)/(1-s_star), np.zeros_like(s_gas)) # фазовые
+            k_s_liq = s_liq
+            
+            kk_gas = - (1e-3 * k / nu_gas) * k_s_gas # то, на что умножается градиент в законе Дарси
+            kk_liq = - (1e-3 * k / nu_liq) * k_s_liq
+
+            # градиент от этого (просто проницаемость за скобку для стабильности)
+            grad_kk_gas = - (1e-3 * k / nu_gas) * gradient_k(k_s_gas)
+            grad_kk_liq = - (1e-3 * k / nu_liq) * gradient_k(k_s_liq)
+
+            grad_P_gas = gradient_p(P_gas)
+            grad_P_liq = grad_P_gas
+
+            laplace_P_gas = laplace_p(P_gas) # лаплас, градиент ro*g равен нулю
+            laplace_P_liq = laplace_P_gas
+
+            div_w1 = kk_gas * laplace_P_gas + dot(grad_P_gas - ro * g, grad_kk_gas) # дивергенция от закона Дарси по правиду дивергенции произведения скалярного и векторного поля
+            div_w2 = kk_liq * laplace_P_liq + dot(grad_P_liq - ro_liq * g, grad_kk_liq)
+
+            s_diff = D * laplace_s(s_gas) # диффузия газа, чтобы было немного ровнее с градиентом газонасыщенности
+
+            ds_gas_dt = (1 / m) * div_w2 + s_diff # уравнение на изменение насыщенности 
+            
+            dro_dt = (s_gas * m)**-1 * (source - ro * (div_w1 + div_w2)) # пьезопроводность (относительно плотности газа)
+            # dro_dt = (self.s_star * self.m)**-1 * (source - ro * (div_w1 + div_w2)) # ускорение
+
+            # регуляризация производной насыщенности, чтобы за границы не выходила (в таком порядке)
+            # dro_dt = sanity_check(s_gas, ds_gas_dt, dro_dt)
+            # ds_gas_dt = sanity_check(s_gas, ds_gas_dt, ds_gas_dt)
+            mask = ((s_gas <= s_eps) & (ds_gas_dt < 0.0)) | ((s_gas >= 1.0 - s_eps) & (ds_gas_dt > 0.0))
+            ds_gas_dt.ravel()[mask.ravel()] = 0.0
+            dro_dt.ravel()[mask.ravel()] = 0.0
+
+            dP_dt = dro_dt * 0.1 / ro_gas # переводим изменение плотности в изменение давления
+
+            rate = np.empty_like(state_data)
+            rate[0] = dP_dt
+            rate[1] = ds_gas_dt
+
+            return rate
+
+        return pde_rhs
 '''
 Vanilla two phase flow like in Basniev book
 '''
