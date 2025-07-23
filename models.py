@@ -22,7 +22,8 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         # параметры среды
         self.k = 0.1 # Darcy проницаемсть
         self.m = 0.4 # поистость
-        self.s_noise = 1e-3 # коэффициент шума для возмущения всего (насыщеннсоть чтобы не была слишком ровной)
+        self.s_noise = None # коэффициент шума для возмущения s
+        self.k_noise = None # коэффициент шума для возмущения k
 
         # параметры флюидов
         self.ro_gas = 1.28 # начальная плотность газа kg/m3
@@ -79,8 +80,10 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
             (xyz[:,:,:,1] >= total_H - self.H - self.b) ) # координаты области с газогидратом
 
         # поле проницаемости со случайными вариациями 
-        # k  = self.k * (1 +  np.random.randn(*self.shape) * self.k_noise)
         k  = self.k * np.ones(self.shape)
+        if self.k_noise:
+            k = k * (1 + np.random.randn(*self.shape) * self.k_noise) # просто шум
+            k = k * (1 + np.random.randn(1, self.shape[1], 1) * self.k_noise) # линии
         self.k_field = ScalarField(self.grid, data=k)
 
         # g field  - поле силы тяжести
@@ -99,9 +102,8 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         # s_gas initial field - начальное поле насыщенности газом
         s_ini = np.ones(self.shape) * self.s0 # насыщенность во всём объёме
         s_ini[xh, yh, zh] = self.s_gas # насыщенность в области с газом 
-
-        s_ini = s_ini * (1 + np.abs(np.random.randn(*self.shape)*self.s_noise)) # добавим шум
-
+        if self.s_noise:
+            s_ini[xh, yh, zh] = s_ini[xh, yh, zh] * (1 + np.random.randn(*self.shape)*self.s_noise) # добавим шум, если передан 
         self.s_ini_field = ScalarField(self.grid, data=s_ini) 
 
         # source field - распределённый источник газа. q по сути это dro/dt в области выделения, если выделение газа 1 кг в куб. метре в секунду, то q=1 кг/м3*сек
@@ -112,7 +114,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         # boundary condition
         ro_g = 9.81 * 1e-6 * self.ro_liq
         self.p_gas_bc = [{'derivative': 0}, [{'derivative': ro_g}, {'value': self.P0 + self.Pc}], {'derivative': 0}]
-
+   
     # метод для вычисления гидростатического давления, плотность должна быть в кг/м3
     def get_ro_g_h(self, ro):
         ro_g = self.g_field.to_scalar().data * ro * self.grid.cell_volume_data[1] 
