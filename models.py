@@ -10,8 +10,10 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         super().__init__()
         # параметры модели
         self.seed = None
-        self.t_range = 1000 # запихал это сюда, чтобы все было в одном месте, 
-        self.timestep = 10  # чтобы было удобно сохранить весь обьект и не морочиьтся со всякими ямлами 
+        self.t_scale = 1
+        self.t_range = 3600 # запихал это сюда, чтобы все было в одном месте, 
+        self.timestep = 60  # чтобы было удобно сохранить весь обьект и не морочиьтся со всякими ямлами 
+
         self.shape = (64, 160, 2) # points
         self.sides = ((0, 6.4), (0, 16), (0, 0.2)) # meters
         
@@ -39,7 +41,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         methane in marine sediments: Influence of porosity. Geochim. Cosmochim. Acta 57
         (3), 571–578. doi: 10.1016/0016-7037(93)90368-7
         '''
-        self.D = 3e-9 
+        self.D = 3e-9 # m2/s
 
         # давление
         self.P0 = 0.13 # MPa press - давление на нулевой глубине - 20 метров = 0.1 + 0.2 Мпа
@@ -166,17 +168,22 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
     
     # вся магия тут
     def evolution_rate(self, state, t=0):
-        ''' Basniev pp.256'''
+        # масштабирование коэффициентов переноса и параметров источника
+        nu_gas = self.nu_gas / self.t_scale
+        nu_liq = self.nu_liq / self.t_scale
+        D = self.D * self.t_scale
+        source = self.source_field * self.t_scale # поле источника
+
         P_gas, s_gas = state # искомые поля - давление и насыщенность газом
         s_liq = 1-s_gas # насыщенность жидкости = 1 - s газа
         ro = self.ro(P_gas) # распреджеление плотности газа исходя из давления
 
-        kk_gas = - (1e-3 * self.k_field / self.nu_gas) * self.k_s_gas(s_gas) # то, на что умножается градиент в законе Дарси
-        kk_liq = - (1e-3 * self.k_field / self.nu_liq) * self.k_s_liq(s_liq)
+        kk_gas = - (1e-3 * self.k_field / nu_gas) * self.k_s_gas(s_gas) # то, на что умножается градиент в законе Дарси
+        kk_liq = - (1e-3 * self.k_field / nu_liq) * self.k_s_liq(s_liq)
 
         # градиент от этого (просто проницаемость за скобку для стабильности)
-        grad_kk_gas = - (1e-3 * self.k_field / self.nu_gas) * self.k_s_gas(s_gas).gradient({'derivative': 0}) 
-        grad_kk_liq = - (1e-3 * self.k_field / self.nu_liq) * self.k_s_liq(s_liq).gradient({'derivative': 0})
+        grad_kk_gas = - (1e-3 * self.k_field / nu_gas) * self.k_s_gas(s_gas).gradient({'derivative': 0}) 
+        grad_kk_liq = - (1e-3 * self.k_field / nu_liq) * self.k_s_liq(s_liq).gradient({'derivative': 0})
 
         grad_P_gas = P_gas.gradient(self.p_gas_bc) 
         grad_P_liq = grad_P_gas
@@ -187,13 +194,11 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         div_w1 = kk_gas * laplace_P_gas + (grad_P_gas - ro * self.g_field) @ grad_kk_gas # дивергенция от закона Дарси по правиду дивергенции произведения скалярного и векторного поля
         div_w2 = kk_liq * laplace_P_liq + (grad_P_liq - self.ro_liq * self.g_field) @ grad_kk_liq
 
-        s_diff = self.D * s_gas.laplace({'derivative': 0}) # диффузия газа, чтобы было немного ровнее с градиентом газонасыщенности
+        s_diff = D * s_gas.laplace({'derivative': 0}) # диффузия газа, чтобы было немного ровнее с градиентом газонасыщенности
 
         ds_gas_dt = (1/self.m) * div_w2 + s_diff # уравнение на изменение насыщенности 
          
-        source = self.source_field # поле источника газа
         dro_dt = (s_gas * self.m)**-1 * (source - ro * (div_w1 + div_w2)) # пьезопроводность (относительно плотности газа)
-        # dro_dt = (self.s_star * self.m)**-1 * (source - ro * (div_w1 + div_w2)) # ускорение
 
         # регуляризация производной насыщенности, чтобы за границы не выходила (в таком порядке)
         dro_dt = self.sanity_check(s_gas, ds_gas_dt, dro_dt)
@@ -224,14 +229,14 @@ class Numba_Unstable_Two_Phase_Gas_Grav(Unstable_Two_Phase_Gas_Grav):
         m = self.m 
         ro_gas = self.ro_gas
         ro_liq = self.ro_liq
-        nu_gas = self.nu_gas 
-        nu_liq = self.nu_liq 
-        D = self.D 
+        nu_gas = self.nu_gas / self.t_scale
+        nu_liq = self.nu_liq / self.t_scale
+        D = self.D * self.t_scale
         Pc = self.Pc
         s_star = self.s_star 
         s_eps = self.s_eps 
-        source = self.source_field.data
-        g = self.g_field.data
+        source = self.source_field.data * self.t_scale
+        g = self.g_field.data 
 
         # create operators      
         grid = self.grid
@@ -273,11 +278,8 @@ class Numba_Unstable_Two_Phase_Gas_Grav(Unstable_Two_Phase_Gas_Grav):
             ds_gas_dt = (1 / m) * div_w2 + s_diff # уравнение на изменение насыщенности 
             
             dro_dt = (s_gas * m)**-1 * (source - ro * (div_w1 + div_w2)) # пьезопроводность (относительно плотности газа)
-            # dro_dt = (self.s_star * self.m)**-1 * (source - ro * (div_w1 + div_w2)) # ускорение
 
             # регуляризация производной насыщенности, чтобы за границы не выходила (в таком порядке)
-            # dro_dt = sanity_check(s_gas, ds_gas_dt, dro_dt)
-            # ds_gas_dt = sanity_check(s_gas, ds_gas_dt, ds_gas_dt)
             mask = ((s_gas <= s_eps) & (ds_gas_dt < 0.0)) | ((s_gas >= 1.0 - s_eps) & (ds_gas_dt > 0.0))
             ds_gas_dt.ravel()[mask.ravel()] = 0.0
             dro_dt.ravel()[mask.ravel()] = 0.0
