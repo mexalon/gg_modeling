@@ -105,7 +105,7 @@ class Unstable_Two_Phase_Gas_Grav(PDEBase):
         s_ini = np.ones(self.shape) * self.s0 # насыщенность во всём объёме
         s_ini[xh, yh, zh] = self.s_gas # насыщенность в области с газом 
         if self.s_noise:
-            s_ini[xh, yh, zh] = s_ini[xh, yh, zh] * (1 + np.random.randn(*self.shape)*self.s_noise) # добавим шум, если передан 
+            s_ini[xh, yh, zh] = s_ini[xh, yh, zh] * (1 + np.random.randn(*self.shape)[xh, yh, zh]*self.s_noise) # добавим шум, если передан 
         self.s_ini_field = ScalarField(self.grid, data=s_ini) 
 
         # source field - распределённый источник газа. q по сути это dro/dt в области выделения, если выделение газа 1 кг в куб. метре в секунду, то q=1 кг/м3*сек
