@@ -140,11 +140,16 @@ def plot_concentration_front_with_frac(eq, press, sat, tresh, title=None, fname=
     y_ax = [np.linspace(s[0], s[1], sh) for sh, s in zip(eq.shape, eq.sides)][1]
     y_ax = np.flip(y_ax)
     depth = y_ax[depth_idxs] # Глубина фронта (ось Y)
-
-    relese_time = np.argmax(depth_idxs==eq.shape[1]-1) * eq.timestep * eq.t_scale/(3600*24) # момент выхода фронта на поверхность в сутках
-
     # Время (ось X)
     time = np.arange(sat.shape[0]) * eq.timestep * eq.t_scale/(3600*24) # время в сутках
+
+    relese_time = np.argmax(depth_idxs==eq.shape[1]-1) * eq.timestep * eq.t_scale/(3600*24) # момент выхода фронта на поверхность в сутках, ноль если не найдено
+    if relese_time == 0: # если фронт не вышел
+        min_depth_idx = np.argmin(depth)
+        front_av_speed = (eq.H - depth[min_depth_idx])/time[min_depth_idx]
+        relese_time = None
+    else:
+        front_av_speed = eq.H / relese_time
 
     # Построение графика
     fig, ax = plt.subplots(figsize=(4, 4))
@@ -153,11 +158,16 @@ def plot_concentration_front_with_frac(eq, press, sat, tresh, title=None, fname=
     if relese_time:
         ax.axvline(relese_time, color='r', linestyle=':', label=f'Момент выхода на поверхность')
         
-    t_frac_idx, y_frac_idx = get_frac_depth_and_time_idx(eq, press) # индексы разрыва
-    t_frac, depth_frac = get_depth_and_time(eq, t_frac_idx, y_frac_idx) # превращает их в сутки и глубину
-    front_at_t_frac = depth[t_frac_idx] # где был фронт в моментт возникновения разрыва
-
-    ax.scatter(t_frac, depth_frac, marker='*', c='r', label=f'Момент возникновения разрыва' )
+    front_idxs = get_frac_depth_and_time_idx(eq, press) # индексы разрыва
+    if front_idxs is not None:
+        t_frac_idx, y_frac_idx = front_idxs
+        t_frac, depth_frac = get_depth_and_time(eq, t_frac_idx, y_frac_idx) # превращает их в сутки и глубину
+        front_at_t_frac = depth[t_frac_idx] # где был фронт в моментт возникновения разрыва
+        ax.scatter(t_frac, depth_frac, marker='*', c='r', label=f'Момент возникновения разрыва' )
+    else:
+        t_frac = None
+        front_at_t_frac = None 
+        depth_frac = None
     
     ax.legend()
     ax.set_xlabel(r'$Время,\ сут.$')
@@ -173,7 +183,7 @@ def plot_concentration_front_with_frac(eq, press, sat, tresh, title=None, fname=
         
     plt.close()
     
-    return relese_time, t_frac, depth_frac, front_at_t_frac
+    return front_av_speed, relese_time, t_frac, depth_frac, front_at_t_frac
 
 
 
@@ -223,38 +233,40 @@ def plot_summary_front_velocities(df_all, fname=None):
     Рисует сводный график скосростей подьема фронта
     """
     # названия полей в CSV
-    FILT  = "Выделение массы газа в единице объёма, кг/м3*сек" # цветом
-    XPAR  = "Проницаемость, Д"
-    YPAR  = "Средняя скорость фронта,  м/сут"
+    XPAR  = "Выделение массы газа в единице объёма, кг/м3*сек"  # по иксу
+    YPAR  = "Средняя скорость фронта,  м/сут"  # по игреку
+
+    FILT  = "Проницаемость, Д" # цветом
     SPAR  = "Капиллярное давление, МПа" # штрихами
 
     # уникальные значения для отображения
-    rates = sorted(df_all[FILT].unique())
-    pcs = sorted(df_all[SPAR].unique())
+    colors = sorted(df_all[FILT].unique())
+    dashes = sorted(df_all[SPAR].unique())
 
     # цветовая схема для расстояний
     cmap = plt.get_cmap('tab10')
-    color_map = {q: cmap(i / max(1, len(rates)-1)) for i, q in enumerate(rates)}
+    color_map = {color: cmap(i / max(1, len(colors)-1)) for i, color in enumerate(colors)}
 
     # стили для пористостей
     line_styles = ['-', '--', '-.', ':']
-    style_map = {pc: line_styles[i % len(line_styles)] for i, pc in enumerate(pcs)}
+    style_map = {dash: line_styles[i % len(line_styles)] for i, dash in enumerate(dashes)}
 
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # строим кривые
-    for q in rates:
-        for pc in pcs:
-            grp = df_all[(df_all[FILT] == q) & (df_all[SPAR] == pc)].sort_values(XPAR)
+    for color in colors:
+        for dash in dashes:
+            grp = df_all[(df_all[FILT] == color) & (df_all[SPAR] == dash)].sort_values(XPAR)
             if grp.empty:
                 continue
             ax.plot(grp[XPAR], grp[YPAR], marker='o',
-                    color=color_map[q], linestyle=style_map[pc],
-                    label=f"Q={q:.1e} $кг/м^3с$, P$_c$={pc} МПа")
+                    color=color_map[color], linestyle=style_map[dash],
+                    label=f"k={color} $Дарси$, P$_c$={dash} МПа")
 
     ax.set_xlabel(f"{XPAR}")
     ax.set_ylabel(f"{YPAR}")
     ax.set_xscale('log')
+    ax.set_yscale('log')
 
     ax.grid(True)
     ax.legend()
@@ -268,47 +280,49 @@ def plot_summary_front_velocities(df_all, fname=None):
 
     else:
         plt.show()
-
 
 
 
 def plot_summary_front_relese_times(df_all, fname=None):
     """
-    Рисует сводный график скосростей подьема фронта
+    Рисует сводный график времен выхода фронта
     """
     # названия полей в CSV
-    FILT  = "Выделение массы газа в единице объёма, кг/м3*сек" # цветом
-    XPAR  = "Проницаемость, Д"
-    YPAR  = "Время выхода фронта на поверхность, сут"
+    XPAR  = "Выделение массы газа в единице объёма, кг/м3*сек"  # по иксу
+    YPAR  = "Время выхода фронта на поверхность, сут"  # по игреку
+
+    FILT  = "Проницаемость, Д" # цветом
     SPAR  = "Капиллярное давление, МПа" # штрихами
 
     # уникальные значения для отображения
-    rates = sorted(df_all[FILT].unique())
-    pcs = sorted(df_all[SPAR].unique())
+    colors = sorted(df_all[FILT].unique())
+    dashes = sorted(df_all[SPAR].unique())
 
     # цветовая схема для расстояний
     cmap = plt.get_cmap('tab10')
-    color_map = {q: cmap(i / max(1, len(rates)-1)) for i, q in enumerate(rates)}
+    color_map = {color: cmap(i / max(1, len(colors)-1)) for i, color in enumerate(colors)}
 
     # стили для пористостей
     line_styles = ['-', '--', '-.', ':']
-    style_map = {pc: line_styles[i % len(line_styles)] for i, pc in enumerate(pcs)}
+    style_map = {dash: line_styles[i % len(line_styles)] for i, dash in enumerate(dashes)}
 
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # строим кривые
-    for q in rates:
-        for pc in pcs:
-            grp = df_all[(df_all[FILT] == q) & (df_all[SPAR] == pc)].sort_values(XPAR)
+    # строим кривые
+    for color in colors:
+        for dash in dashes:
+            grp = df_all[(df_all[FILT] == color) & (df_all[SPAR] == dash)].sort_values(XPAR)
             if grp.empty:
                 continue
             ax.plot(grp[XPAR], grp[YPAR], marker='o',
-                    color=color_map[q], linestyle=style_map[pc],
-                    label=f"Q={q:.1e} $кг/м^3с$, P$_c$={pc} МПа")
+                    color=color_map[color], linestyle=style_map[dash],
+                    label=f"k={color} $Дарси$, P$_c$={dash} МПа")
 
     ax.set_xlabel(f"{XPAR}")
     ax.set_ylabel(f"{YPAR}")
     ax.set_xscale('log')
+    # ax.set_yscale('log')
 
     ax.grid(True)
     ax.legend()
@@ -324,45 +338,46 @@ def plot_summary_front_relese_times(df_all, fname=None):
         plt.show()
 
 
-        
-
 def plot_summary_front_frac_depths(df_all, fname=None):
     """
-    Рисует сводный график скосростей подьема фронта
+    Рисует сводный график Глубина возникновения разрыва, м
     """
     # названия полей в CSV
-    FILT  = "Выделение массы газа в единице объёма, кг/м3*сек" # цветом
-    XPAR  = "Проницаемость, Д"
-    YPAR  = "Глубина возникновения разрыва, м"
+    XPAR  = "Выделение массы газа в единице объёма, кг/м3*сек"  # по иксу
+    YPAR  = "Глубина возникновения разрыва, м"  # по игреку
+
+    FILT  = "Проницаемость, Д" # цветом
     SPAR  = "Капиллярное давление, МПа" # штрихами
 
     # уникальные значения для отображения
-    rates = sorted(df_all[FILT].unique())
-    pcs = sorted(df_all[SPAR].unique())
+    colors = sorted(df_all[FILT].unique())
+    dashes = sorted(df_all[SPAR].unique())
 
     # цветовая схема для расстояний
     cmap = plt.get_cmap('tab10')
-    color_map = {q: cmap(i / max(1, len(rates)-1)) for i, q in enumerate(rates)}
+    color_map = {color: cmap(i / max(1, len(colors)-1)) for i, color in enumerate(colors)}
 
     # стили для пористостей
     line_styles = ['-', '--', '-.', ':']
-    style_map = {pc: line_styles[i % len(line_styles)] for i, pc in enumerate(pcs)}
+    style_map = {dash: line_styles[i % len(line_styles)] for i, dash in enumerate(dashes)}
 
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # строим кривые
-    for q in rates:
-        for pc in pcs:
-            grp = df_all[(df_all[FILT] == q) & (df_all[SPAR] == pc)].sort_values(XPAR)
+    # строим кривые
+    for color in colors:
+        for dash in dashes:
+            grp = df_all[(df_all[FILT] == color) & (df_all[SPAR] == dash)].sort_values(XPAR)
             if grp.empty:
                 continue
-            ax.plot(grp[XPAR], grp[YPAR], marker='*',
-                    color=color_map[q], linestyle=style_map[pc],
-                    label=f"Q={q:.1e} $кг/м^3с$, P$_c$={pc} МПа")
+            ax.plot(grp[XPAR], grp[YPAR], marker='o',
+                    color=color_map[color], linestyle=style_map[dash],
+                    label=f"k={color} $Дарси$, P$_c$={dash} МПа")
 
     ax.set_xlabel(f"{XPAR}")
     ax.set_ylabel(f"{YPAR}")
     ax.set_xscale('log')
+    # ax.set_yscale('log')
 
     ax.grid(True)
     ax.legend()

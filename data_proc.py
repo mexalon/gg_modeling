@@ -44,6 +44,9 @@ def get_frac_depth_and_time_idx(eq, press):
 
     mask = (press - eq.Pc > solid_ro_g_h).any(axis=(1, 3))
     t_idx, y_idx = np.where(mask) # индексы где не ноль
+    if t_idx.size == 0:
+        return None # не было ни единого разрыва
+    
     # 3) Сортируем сначала по времени, затем по глубине
     order = np.lexsort((y_idx, t_idx))
     t_frac_idx, y_frac_idx = int(t_idx[order[0]]), int(y_idx[order[0]]) # индексы первого вхождения 
