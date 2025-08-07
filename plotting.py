@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from matplotlib.lines import Line2D
+
 import numpy as np
 
 from data_proc import get_depth_and_time, get_frac_depth_and_time_idx, get_front_indices
@@ -26,7 +28,7 @@ def plot_sat(eq, data, mask=None, vmin_vmax=None, title=None, fname=None):
         ax.imshow(mask[:, :, mid_z].transpose(), extent=[x_ax[0], x_ax[-1], y_ax[-1], y_ax[-0]], origin='lower', cmap="cool", alpha=mask[:, :, 0].transpose()) # mask
 
     if title:
-        ax.set_title(title)
+        ax.set_title(title, fontsize=10)
     else:
         ax.set_title(r'$Разрез$')
 
@@ -169,13 +171,13 @@ def plot_concentration_front_with_frac(eq, press, sat, tresh, title=None, fname=
         front_at_t_frac = None 
         depth_frac = None
     
-    ax.legend()
+    ax.legend(fontsize=8)
     ax.set_xlabel(r'$Время,\ сут.$')
     ax.set_ylabel(r'$Глубина\ фронта,\ м$')
     ax.grid(True)
      
     if title:
-        ax.set_title(title)
+        ax.set_title(title, fontsize=10)
     if fname:
         plt.savefig(fname, dpi = 300,  bbox_inches='tight', transparent=False)
     else:
@@ -251,7 +253,7 @@ def plot_summary_front_velocities(df_all, fname=None):
     line_styles = ['-', '--', '-.', ':']
     style_map = {dash: line_styles[i % len(line_styles)] for i, dash in enumerate(dashes)}
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(5, 5))
 
     # строим кривые
     for color in colors:
@@ -263,13 +265,37 @@ def plot_summary_front_velocities(df_all, fname=None):
                     color=color_map[color], linestyle=style_map[dash],
                     label=f"k={color} $Дарси$, P$_c$={dash} МПа")
 
-    ax.set_xlabel(f"{XPAR}")
-    ax.set_ylabel(f"{YPAR}")
+    ax.set_xlabel(r"$Выделение\ массы\ газа\ в\ единице\ объёма,\ кг/м^3с$")
+    ax.set_ylabel("$Средняя скорость фронта, м/сут$")
     ax.set_xscale('log')
     ax.set_yscale('log')
 
     ax.grid(True)
-    ax.legend()
+
+    # «прокси»-объекты: точки нужного цвета (k) …
+    color_handles = [
+        Line2D([], [], marker='o', linestyle='', markersize=6,
+               color=color_map[k], label=f"$k$ = {k} Д")
+        for k in colors
+    ]
+
+    # … и чёрные линии нужного штриха (P_c)
+    style_handles = [
+        Line2D([], [], color='black', linewidth=1.6,
+               linestyle=style_map[pc], label=f"$P_c$ = {pc} МПа")
+        for pc in dashes
+    ]
+
+    # собираем в одну легенду
+    handles = color_handles + style_handles
+    ax.legend(handles=handles,
+              ncol=2,                    # две колонки делают легенду короче
+            #   title="Обозначения",       # общий заголовок
+              fontsize=9, title_fontsize=10,
+              frameon=True,
+              loc='lower right',          # «припарковать» сбоку
+              ) 
+
     fig.tight_layout()
 
     # сохраняем или показываем
@@ -306,7 +332,7 @@ def plot_summary_front_relese_times(df_all, fname=None):
     line_styles = ['-', '--', '-.', ':']
     style_map = {dash: line_styles[i % len(line_styles)] for i, dash in enumerate(dashes)}
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(5, 5))
 
     # строим кривые
     # строим кривые
@@ -319,13 +345,37 @@ def plot_summary_front_relese_times(df_all, fname=None):
                     color=color_map[color], linestyle=style_map[dash],
                     label=f"k={color} $Дарси$, P$_c$={dash} МПа")
 
-    ax.set_xlabel(f"{XPAR}")
-    ax.set_ylabel(f"{YPAR}")
+    ax.set_xlabel(r"$Выделение\ массы\ газа\ в\ единице\ объёма,\ кг/м^3с$")
+    ax.set_ylabel("$Время выхода фронта на поверхность, сут$")
     ax.set_xscale('log')
     # ax.set_yscale('log')
 
     ax.grid(True)
-    ax.legend()
+
+    # «прокси»-объекты: точки нужного цвета (k) …
+    color_handles = [
+        Line2D([], [], marker='o', linestyle='', markersize=6,
+               color=color_map[k], label=f"$k$ = {k} Д")
+        for k in colors
+    ]
+
+    # … и чёрные линии нужного штриха (P_c)
+    style_handles = [
+        Line2D([], [], color='black', linewidth=1.6,
+               linestyle=style_map[pc], label=f"$P_c$ = {pc} МПа")
+        for pc in dashes
+    ]
+
+    # собираем в одну легенду
+    handles = color_handles + style_handles
+    ax.legend(handles=handles,
+              ncol=2,                    # две колонки делают легенду короче
+            #   title="Обозначения",       # общий заголовок
+              fontsize=9, title_fontsize=10,
+              frameon=True,
+              loc='upper right',          # «припарковать» сбоку
+              ) 
+    
     fig.tight_layout()
 
     # сохраняем или показываем
@@ -361,9 +411,9 @@ def plot_summary_front_frac_depths(df_all, fname=None):
     line_styles = ['-', '--', '-.', ':']
     style_map = {dash: line_styles[i % len(line_styles)] for i, dash in enumerate(dashes)}
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(5, 5))
 
-    # строим кривые
+    ax.invert_yaxis() # чтобы глубина была вглубь
     # строим кривые
     for color in colors:
         for dash in dashes:
@@ -374,13 +424,36 @@ def plot_summary_front_frac_depths(df_all, fname=None):
                     color=color_map[color], linestyle=style_map[dash],
                     label=f"k={color} $Дарси$, P$_c$={dash} МПа")
 
-    ax.set_xlabel(f"{XPAR}")
-    ax.set_ylabel(f"{YPAR}")
+    ax.set_xlabel(r"$Выделение\ массы\ газа\ в\ единице\ объёма,\ кг/м^3с$")
+    ax.set_ylabel("Глубина возникновения разрыва, м")
     ax.set_xscale('log')
     # ax.set_yscale('log')
 
     ax.grid(True)
-    ax.legend()
+
+    # «прокси»-объекты: точки нужного цвета (k) …
+    color_handles = [
+        Line2D([], [], marker='o', linestyle='', markersize=6,
+               color=color_map[k], label=f"$k$ = {k} Д")
+        for k in colors
+    ]
+
+    # … и чёрные линии нужного штриха (P_c)
+    style_handles = [
+        Line2D([], [], color='black', linewidth=1.6,
+               linestyle=style_map[pc], label=f"$P_c$ = {pc} МПа")
+        for pc in dashes
+    ]
+
+    # собираем в одну легенду
+    handles = color_handles + style_handles
+    ax.legend(handles=handles,
+              ncol=2,                    # две колонки делают легенду короче
+            #   title="Обозначения",       # общий заголовок
+              fontsize=9, title_fontsize=10,
+              frameon=True,
+              loc='lower left',          # «припарковать» сбоку
+              ) 
     fig.tight_layout()
 
     # сохраняем или показываем
